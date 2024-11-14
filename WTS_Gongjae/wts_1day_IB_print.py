@@ -1,140 +1,171 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+import csv
+import pygame
+import random
 
-# 팔레트 클래스 정의
+# 초기 pygame 설정
+pygame.init()
+SCREEN_WIDTH, SCREEN_HEIGHT = 1200, 800
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Warehouse Simulation")
+
+# 색상 정의
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (200, 200, 200)
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+
+# 기본 폰트 설정
+font = pygame.font.Font(None, 24)
+
+
+# 1. Pallet (PLT) 클래스
 class Pallet:
     def __init__(self, name, length, width):
         self.name = name
         self.length = length
         self.width = width
 
+
 # KS 표준 규격인 T11형 팔레트 정의
 PLT_T11 = Pallet('T11', 1100, 1100)
 
 
-# 상품 클래스 정의
+# 2. Product 클래스 정의
 class Product:
-    def __init__(self, name, weight, length, width, height, items_per_pallet):
+    def __init__(self, name, unit_volume, max_plt_capacity):
         self.name = name
-        self.weight = weight
-        self.length = length
-        self.width = width
-        self.height = height
-        self.items_per_pallet = items_per_pallet
+        self.unit_volume = unit_volume  # 상품의 단위 부피
+        self.max_plt_capacity = max_plt_capacity  # PLT당 최대 적재 가능한 개수
+        self.total_quantity = random.randint(500, 1000)  # 초기 재고 설정
+        self.current_plt = (self.total_quantity // max_plt_capacity) + (
+            1 if self.total_quantity % max_plt_capacity else 0)
 
+    def add_stock(self, quantity):
+        self.total_quantity += quantity
+        self.current_plt = (self.total_quantity // self.max_plt_capacity) + (
+            1 if self.total_quantity % self.max_plt_capacity else 0)
+        print(f"상품명: {self.name}, 팔레트 수: {self.current_plt}/20 PLT, 개수: {self.total_quantity} EA")
 
-# 상품 리스트 생성
-products = []
-min_items_per_pallet = 40
-base_items_per_pallet = 200
-for i in range(26):
-    name = chr(97 + i)  # 'a'부터 'z'까지의 상품 이름
-    weight = None  # 무게는 pass
-    length = 110 + (i * 5)  # 가로 길이 조정 (예시)
-    width = 110 + (i * 5)  # 세로 길이 조정 (예시)
-    height = 100  # 높이 (예시)
-
-    # 최소 40 이상의 아이템이 팔레트에 적재될 수 있도록 조정
-    items_per_pallet = max(base_items_per_pallet - (i * 10), min_items_per_pallet)
-    products.append(Product(name, weight, length, width, height, items_per_pallet))
-
-# 상품 정보 출력
-for product in products:
-    print(f'상품명: {product.name}, 팔레트당 상품 개수: {product.items_per_pallet}')
-
-
-# 창고 클래스 정의
-class Warehouse:
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.zones = {}
-
-    def add_zone(self, name, x, y, width, height):
-        self.zones[name] = {'x': x, 'y': y, 'width': width, 'height': height}
-
-    def plot_warehouse(self):
-        fig, ax = plt.subplots()
-        ax.set_xlim(0, self.width)
-        ax.set_ylim(0, self.height)
-        for zone, dim in self.zones.items():
-            rect = patches.Rectangle((dim['x'], dim['y']), dim['width'], dim['height'], linewidth=1, edgecolor='r', facecolor='none')
-            ax.add_patch(rect)
-            plt.text(dim['x'] + dim['width']/2, dim['y'] + dim['height']/2, zone, ha='center', va='center')
-        plt.show()
-
-# 창고 생성 및 구역 추가
-warehouse = Warehouse(200, 100)
-warehouse.add_zone('입고', 0, 75, 40, 25)
-warehouse.add_zone('출고', 0, 0, 40, 25)
-warehouse.add_zone('허브검수', 100, 25, 40, 50)
-
-# 저장소 클래스 정의
-class StorageArea:
-    def __init__(self, name):
-        self.name = name
-        self.capacity = 20  # 최대 20 PLT로 제한
-        self.current_stock = 0
-        self.ea_per_plt = {}
-
-    def update_stock(self, product, plt_amount, ea_amount):
-        if product.name in self.ea_per_plt:
-            self.ea_per_plt[product.name] += ea_amount
+    def remove_stock(self, quantity):
+        if self.total_quantity >= quantity:
+            self.total_quantity -= quantity
+            self.current_plt = (self.total_quantity // self.max_plt_capacity) + (
+                1 if self.total_quantity % self.max_plt_capacity else 0)
         else:
-            self.ea_per_plt[product.name] = ea_amount
-        self.current_stock += plt_amount
+            print(f"Not enough stock of {self.name}")
+        print(f"상품명: {self.name}, 팔레트 수: {self.current_plt}/20 PLT, 개수: {self.total_quantity} EA")
 
-    def display_stock(self):
-        print(f'적재구역 {self.name} 현재 재고 상태:')
-        for product, ea in self.ea_per_plt.items():
-            print(f'상품명: {product}, 팔레트 수: {self.current_stock}/{self.capacity} PLT, 개수: {ea}EA')
-        print()
 
-# 피킹 구현을 위한 토트 클래스 정의
+# 3. Tote 클래스 정의 (25개 제한)
 class Tote:
-    def __init__(self, code):
-        self.code = code
+    tote_counter = 1  # 토트 ID 생성기
+
+    def __init__(self):
+        self.code = f"{Tote.tote_counter:05d}"
+        Tote.tote_counter += 1
         self.items = {}
-        self.capacity = 100  # 예시 적재 용량 (pass)
-        self.volume = 0  # 적재 부피
+        self.max_capacity = 25  # 최대 25개까지 적재 가능
 
     def add_item(self, product, quantity):
         if product.name in self.items:
-            self.items[product.name] += quantity
+            if self.items[product.name] + quantity <= self.max_capacity:
+                self.items[product.name] += quantity
+            else:
+                print(f"Tote {self.code} 내용물:")
+                for name, qty in self.items.items():
+                    print(f"상품명: {name}, 개수: {qty}")
+                remaining = quantity - (self.max_capacity - self.items[product.name])
+                self.items[product.name] = self.max_capacity
+                print(f"새로운 토트에 {remaining}개 추가 필요.")
+                return Tote()  # 새 토트 반환
         else:
-            self.items[product.name] = quantity
-        self.volume += product.length * product.width * product.height * quantity
+            self.items[product.name] = min(quantity, self.max_capacity)
+        print(f"Tote {self.code} 내용물:")
+        for name, qty in self.items.items():
+            print(f"상품명: {name}, 개수: {qty}")
+        return self  # 현재 토트 반환
 
-    def display_contents(self):
-        print(f'Tote {self.code} 내용물:')
-        for item, quantity in self.items.items():
-            print(f'상품명: {item}, 개수: {quantity}')
-        print()
-# 테스트 예시
 
-# 창고 시각화
-warehouse.plot_warehouse()
+# 4. Warehouse 클래스 정의
+class Warehouse:
+    def __init__(self):
+        self.products = self.create_products()
+        self.totes = []
 
-# 상품 PLT당 적재개수 정보 출력
-# 상품 정보 출력 함수 정의
-def print_product_info(products):
-    header = f"{'상품명':^5} {'상품 개수':^10} {'단위':^6}"
-    separator = "="*38
-    print(header)
-    print(separator)
-    for product in products:
-        print(f"{product.name:^7} {product.items_per_pallet:^13} {'EA/PLT':^6}")
-    print()
-# 상품 정보 출력
-print_product_info(products)
+    def create_products(self):
+        """26개의 상품 생성 및 등록"""
+        products = {}
+        for i in range(26):
+            name = chr(97 + i)  # 상품명 a ~ z
+            unit_volume = (i + 1) * 10  # 임의로 부피 설정
+            max_plt_capacity = max(50, 200 - (i * 5))  # PLT당 최대 적재량
+            products[name] = Product(name, unit_volume, max_plt_capacity)
+        return products
 
-# 저장소 예시
-storage_area = StorageArea('A')
-product_a = products[0]
-storage_area.update_stock(product_a, 16, 1934)
-storage_area.display_stock()
+    def stock_in(self, product_name, quantity):
+        if product_name in self.products:
+            self.products[product_name].add_stock(quantity)
 
-# 토트 예시
-tote_1 = Tote('00001')
-tote_1.add_item(product_a, 3)
-tote_1.display_contents()
+    def stock_out(self, product_name, quantity):
+        if product_name in self.products:
+            self.products[product_name].remove_stock(quantity)
+
+    def display_stock(self):
+        print(f'적재구역 현재 재고 상태:')
+        for name, product in self.products.items():
+            print(f"상품명: {name.upper()}, 팔레트 수: {product.current_plt}/20 PLT, 개수: {product.total_quantity} EA")
+
+    def draw_warehouse(self):
+        """창고를 화면에 그립니다."""
+        screen.fill(WHITE)
+        x, y = 50, 50
+        for i, (name, product) in enumerate(self.products.items()):
+            # 상품 박스 그리기
+            pygame.draw.rect(screen, GRAY, (x, y, 100, 80))
+            # 상품명과 재고 표시
+            text = font.render(f"{name.upper()}: {product.total_quantity}EA, {product.current_plt}PLT", True, BLACK)
+            screen.blit(text, (x + 5, y + 5))
+            # +, - 버튼 그리기
+            plus_button = pygame.draw.rect(screen, GREEN, (x, y + 50, 30, 20))
+            minus_button = pygame.draw.rect(screen, RED, (x + 70, y + 50, 30, 20))
+            screen.blit(font.render('+', True, BLACK), (x + 10, y + 53))
+            screen.blit(font.render('-', True, BLACK), (x + 75, y + 53))
+            # 버튼에 대한 이벤트 처리
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if plus_button.collidepoint(event.pos):
+                    self.stock_in(name, 100)  # 재고 +100
+                elif minus_button.collidepoint(event.pos):
+                    self.stock_out(name, 50)  # 재고 -50
+            x += 120
+            if (i + 1) % 6 == 0:
+                x = 50
+                y += 120
+
+
+# 인스턴스 생성
+warehouse = Warehouse()
+tote1 = Tote()
+
+# 게임 루프
+running = True
+clock = pygame.time.Clock()
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # 예시: 입고/출고 작업 및 토트에 적재
+    tote1 = tote1.add_item(warehouse.products["a"], 3)  # 재고가 초과될 경우 새 토트 생성
+
+    # 재고 출력
+    warehouse.display_stock()
+
+    # 시각화 그리기
+    warehouse.draw_warehouse()
+    pygame.display.flip()
+    clock.tick(10)  # FPS 설정
+
+pygame.quit()
